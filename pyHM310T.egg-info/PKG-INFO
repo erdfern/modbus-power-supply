@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: pyHM310T
+Version: 0.1.0
+Summary: Python library for controlling the Hanmatek HM310T power supply
+Home-page: https://github.com/joeyda3rd/modbus-power-supply
+Author: Joey Marino
+Author-email: joey.da3rd@gmail.com
+License-File: LICENSE
+Requires-Dist: pymodbus
+Requires-Dist: pyserial
+Dynamic: author
+Dynamic: author-email
+Dynamic: home-page
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: summary
