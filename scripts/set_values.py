@@ -1,4 +1,5 @@
-"""One-shot: set the Hanmatek HM310T to precise V / I / OVP / OCP.
+#!/usr/bin/env python3
+"""One-shot: set the Hanmatek HM310T to precise V / I / OVP / OCP / OPP.
 
 Output is forced OFF while set-points change, then every value is read
 back and verified. The serial port is always released on exit.
@@ -12,33 +13,47 @@ SLAVE = 1
 # ---- targets -- edit these -----------------------------------------
 VOLTAGE = 12.00    # V   0.01 V steps
 CURRENT = 0.300    # A   0.001 A steps
-OVP     = 12.20    # V   0.01 V steps
-OCP     = 0.50     # A   0.01 A steps  (10 mA grid -- coarser than I set-point)
+OVP     = 12.50    # V   0.01 V steps
+OCP     = 0.500     # A   0.001 A steps
+OPP     = 320.000   # W   0.001 W steps  (keep above your intended V x I)
 # --------------------------------------------------------------------
 
-# (name, register, counts-per-unit) straight from the HM310T modbus map.
+# (name, registers [high word first], counts-per-unit) for this unit.
+# OCP and OPP scaling is x1000, verified on-device -- the OEM doc's
+# "2 decimal places" is wrong for both. OPP is a 32-bit value split
+# across two registers, mirroring the 3-decimal power display.
 # Protections are written first so the operating point lands inside them.
 TARGETS = [
-    ("OVP",     0x0020, 100,  OVP),
-    ("OCP",     0x0021, 100,  OCP),
-    ("Voltage", 0x0030, 100,  VOLTAGE),
-    ("Current", 0x0031, 1000, CURRENT),
+    ("OVP",     [0x0020],         100,  OVP),
+    ("OCP",     [0x0021],         1000, OCP),
+    ("OPP",     [0x0022, 0x0023], 1000, OPP),   # 32-bit: high word, then low
+    ("Voltage", [0x0030],         100,  VOLTAGE),
+    ("Current", [0x0031],         1000, CURRENT),
 ]
 
 ps = PowerSupply(port=PORT, slave=SLAVE)
 try:
     ps.disable_output()          # never move set-points into a live output
 
-    for _, reg, scale, value in TARGETS:
+    for _, regs, scale, value in TARGETS:
         # round(), NOT int(): int(12.35*100) == 1234 -> 12.34 V. round() is exact.
-        ps.write_register(reg, round(value * scale))
+        raw = round(value * scale)
+        for i, reg in enumerate(regs):                 # split into 16-bit words,
+            shift = 16 * (len(regs) - 1 - i)           # high word first
+            ps.write_register(reg, (raw >> shift) & 0xFFFF)
 
     # read back and verify
     print(f"{'param':<9}{'target':>9}{'readback':>10}")
     all_ok = True
-    for name, reg, scale, value in TARGETS:
-        raw = ps.read_register(reg)       # None if the read errored out
-        if raw is None:
+    for name, regs, scale, value in TARGETS:
+        raw, failed = 0, False
+        for reg in regs:
+            word = ps.read_register(reg)               # None if the read errored out
+            if word is None:
+                failed = True
+                break
+            raw = (raw << 16) | word                   # recombine high..low
+        if failed:
             all_ok = False
             print(f"{name:<9}{value:>9.3f}{'--':>10}   <-- NO READ")
             continue
